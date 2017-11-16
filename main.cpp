@@ -7,9 +7,13 @@
 //
 
 #include <iostream>
+#include <fstream>
+#include <cstring>
+#include <string>
+#include <sstream>
 
-#include "PhysicalMemory.hpp"
 #include "BitMap.hpp"
+#include "TLB.hpp"
 
 
 #define FRAME_SIZE 512
@@ -58,8 +62,8 @@ int get_s(int va){
 int get_p(int va){
     int result;
     
-    result = va<<13;
-    result = result>>22;
+    result = va & 523776;
+    result = result>>9;
     
     return result;
 }
@@ -67,8 +71,17 @@ int get_p(int va){
 int get_w(int va){
     int result;
     
-    result = va << 23;
-    result = result >> 23;
+    //result = va << 23;
+    result = va & 511;
+    
+    return result;
+}
+
+int get_sp(int va){
+    int result;
+    
+    result = va & (~511);
+    result = result >> 9;
     
     return result;
 }
@@ -80,15 +93,21 @@ int va_read(int va, int* pm){
     int p = get_p(va);
     int w = get_w(va);
     
-    if(pm[s] == -1 || pm[pm[s]+p] == -1){
+    if(pm[s] == -1){
         std::cout << "pf" << std::endl;
         return -1;
     }
     
-    if(pm[s] == 0 || pm[pm[s]+p] == 0){
+    if(pm[s] == 0){
         std::cout << "err" << std::endl;
         return 0;
     }
+    
+    if(pm[pm[s]+p] == -1)
+        return -1;
+    
+    if(pm[pm[s]+p] == 0)
+        return 0;
     
     result = pm[pm[s]+p]+w;
     
@@ -102,7 +121,7 @@ int va_write(int va, int *pm, BitMap *bitmap){
     int p = get_p(va);
     int w = get_w(va);
     
-    if(pm[s] == -1 || pm[pm[s]+p] == -1){
+    if(pm[s] == -1){
         std::cout << "pf" << std::endl;
         return -1;
     }
@@ -120,6 +139,9 @@ int va_write(int va, int *pm, BitMap *bitmap){
         
     }
     
+    if(pm[pm[s]+p] == -1)
+        return -1;
+    
     if(pm[pm[s]+p] == 0){
         int free_frame = bitmap->find_empty();
         
@@ -136,25 +158,234 @@ int va_write(int va, int *pm, BitMap *bitmap){
     return result;
 }
 
+int check_tlb(TLB *tlbs, int sp){
+    int result = -1;
+    
+    for(int i=0; i<4; i++){
+        if(sp == tlbs[i].s_p)
+            return i;
+    }
+    
+    return result;
+}
+
+int tlb_hit(TLB *tlbs, int index, int va){
+    int result;
+    
+    int w = get_w(va);
+    result = tlbs[index].f+w;
+    
+    for(int i=0; i<4; i++){
+        if(i!=index && tlbs[i].LRU > tlbs[index].LRU && tlbs[i].LRU>0){
+            tlbs[i].LRU--;
+        }
+    }
+    
+    tlbs[index].LRU = 3;
+    
+    return result;
+}
+
+int tlb_miss(TLB *tlbs, int va, int op, int *pm, BitMap *bitmap){
+    int result = 0;
+    
+    if(op == 0){
+        result = va_read(va, pm);
+        
+        if(result == 0)
+            return 0;
+        if(result == -1)
+            return -1;
+    }
+    
+    if(op == 1){
+        result = va_write(va, pm, bitmap);
+        
+        if(result == -1)
+            return -1;
+    }
+    
+    //Update tlb
+    int zero_lru_index = -1;
+    for(int i=0; i<4; i++){
+        if(tlbs[i].LRU == 0)
+            zero_lru_index = i;
+    }
+    if(zero_lru_index != -1){
+        tlbs[zero_lru_index].LRU = 3;
+        tlbs[zero_lru_index].s_p = get_sp(va);
+        tlbs[zero_lru_index].f = result-get_w(va);
+        
+        for(int i=0; i<4; i++){
+            if(i != zero_lru_index && tlbs[i].LRU>0)
+                tlbs[i].LRU--;
+        }
+    }
+    
+    
+    return result;
+}
+
 int main(int argc, const char * argv[]) {
-    // insert code here...
-    std::cout << "Hello, World!\n";
-    PM physical_memory;
+    // Initialization
     int phym[1024*512];
     BitMap bitmap;
     bitmap.set_to_one(0);
     
-    set_page_table(2, 2048, phym,&bitmap);
-    set_page_table_entry(2, 0, 512, phym, &bitmap);
-    set_page_table_entry(2, 1, -1, phym, &bitmap);
+    int phym2[1024*512];
+    BitMap bitmap2;
+    bitmap2.set_to_one(0);
+    TLB tlbs[4];
     
-    int va = 1049088;
-    std::cout << "segment: " << get_s(va) << std::endl;
-    std::cout << "page: " << get_p(va) << std::endl;
-    std::cout << "w: " << get_w(va) << std::endl;
+    //output file
+    std::ofstream output_file;
+    std::ofstream output_file2;
+    output_file.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/output.txt");
+    output_file2.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/output2.txt");
     
-    std::cout << "read va: " << va_read(1048576, phym) << std::endl;
-    std::cout << "write va: " << va_write(1048586, phym, &bitmap) << std::endl;
-    std::cout << "write va: " << va_write(1574407, phym, &bitmap) << std::endl;
+    //Initial PM
+    std:: string line;
+    std::string line2;
+    std::ifstream input_file;
+    
+    input_file.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/input2_1.txt");
+    std::getline(input_file,line);
+    std::getline(input_file,line2);
+    
+    std::istringstream iss(line);
+    while(!iss.eof()){
+        
+        std::string word[2];
+        iss >> word[0];
+        iss >> word[1];
+        
+        std::cout << word[0] << " " << word[1] << std::endl;
+        
+        int s,f;
+        if(word[0]!="" && word[1]!=""){
+            s = std::stoi(word[0]);
+            f = std::stoi(word[1]);
+            
+            set_page_table(s, f, phym, &bitmap);
+            set_page_table(s, f, phym2, &bitmap2);
+        }
+        
+        
+    }
+    
+    std::istringstream iss2(line2);
+    while(!iss2.eof()){
+        
+        std::string word[3];
+        iss2 >> word[0]; iss2 >> word[1]; iss2 >> word[2];
+        
+        std::cout << word[0] << " " << word[1] << " " << word[2] << std::endl;
+        
+        int p,s,f;
+        if(word[0]!="" && word[1]!="" && word[2]!=""){
+            p = std::stoi(word[0]);
+            s = std::stoi(word[1]);
+            f = std::stoi(word[2]);
+            
+            set_page_table_entry(s, p, f, phym, &bitmap);
+            set_page_table_entry(s, p, f, phym2, &bitmap2);
+        }
+        
+        
+    }
+    
+    
+    //VM translation without TLB
+    std::string t_line;
+    std::ifstream input_file2;
+    input_file2.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/input2_2.txt");
+    
+    std::getline(input_file2,t_line);
+    std::istringstream t_iss(t_line);
+    while(!t_iss.eof()){
+        
+        std::string word[2];
+        t_iss >> word[0]; t_iss >> word[1];
+        
+        std::cout << word[0] << " " << word[1] << std::endl;
+        
+        
+        if(word[0]!="" && word[1]!=""){
+            int o = std::stoi(word[0]);
+            int va = std::stoi(word[1]);
+            
+            if(o == 0){
+                int result = va_read(va, phym);
+                if(result==0)
+                    output_file << "err ";
+                if(result==-1)
+                    output_file << "pf ";
+                if(result>0){
+                    output_file << result;
+                    output_file << " ";
+                }
+                
+            }
+            else if(o == 1){
+                int result = va_write(va, phym, &bitmap);
+                if(result == -1)
+                    output_file << "pf ";
+                else{
+                    output_file << result;
+                    output_file <<  " ";
+                }
+            }
+            else
+                std::cout << "error" << std::endl;
+        }
+    }
+    
+    get_w(1573375);
+    get_p(409088);
+    get_s(267911168);
+    get_sp(267911680);
+    
+    //Translation with TLB
+    std::istringstream t_iss2(t_line);
+    while(!t_iss2.eof()){
+        
+        std::string word[2];
+        t_iss2 >> word[0]; t_iss2 >> word[1];
+        
+        std::cout << word[0] << " " << word[1] << std::endl;
+        
+        if(word[0]!="" && word[1]!=""){
+            int o = std::stoi(word[0]);
+            int va = std::stoi(word[1]);
+            
+            int check_result = check_tlb(tlbs, get_sp(va));
+            
+            if(check_result != -1){
+                int result = tlb_hit(tlbs, check_result, va);
+                output_file2 << "h ";
+                output_file2 << result;
+                output_file2 << " ";
+            }else{
+                int result = tlb_miss(tlbs, va, o, phym2, &bitmap2);
+                
+                if(result == 0)
+                    output_file2 << "m err ";
+                else if(result == -1)
+                    output_file2 << "m pf ";
+                else{
+                    output_file2 << "m ";
+                    output_file2 << result;
+                    output_file2 << " ";
+                }
+            }
+            
+        }
+    }
+    
+    input_file.close();
+    input_file2.close();
+    output_file.close();
+    output_file2.close();
+    
     return 0;
 }
