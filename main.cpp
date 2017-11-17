@@ -232,10 +232,7 @@ int main(int argc, const char * argv[]) {
     BitMap bitmap;
     bitmap.set_to_one(0);
     
-    int phym2[1024*512];
-    BitMap bitmap2;
-    bitmap2.set_to_one(0);
-    TLB tlbs[4];
+    
     
     //output file
     std::ofstream output_file;
@@ -243,12 +240,12 @@ int main(int argc, const char * argv[]) {
     output_file.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/output.txt");
     output_file2.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/output2.txt");
     
-    //Initial PM
+    //First Initialization PM
     std:: string line;
     std::string line2;
     std::ifstream input_file;
     
-    input_file.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/input2_1.txt");
+    input_file.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/input1.txt");
     std::getline(input_file,line);
     std::getline(input_file,line2);
     
@@ -267,7 +264,7 @@ int main(int argc, const char * argv[]) {
             f = std::stoi(word[1]);
             
             set_page_table(s, f, phym, &bitmap);
-            set_page_table(s, f, phym2, &bitmap2);
+            //set_page_table(s, f, phym2, &bitmap2);
         }
         
         
@@ -288,7 +285,7 @@ int main(int argc, const char * argv[]) {
             f = std::stoi(word[2]);
             
             set_page_table_entry(s, p, f, phym, &bitmap);
-            set_page_table_entry(s, p, f, phym2, &bitmap2);
+            //set_page_table_entry(s, p, f, phym2, &bitmap2);
         }
         
         
@@ -298,7 +295,7 @@ int main(int argc, const char * argv[]) {
     //VM translation without TLB
     std::string t_line;
     std::ifstream input_file2;
-    input_file2.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/input2_2.txt");
+    input_file2.open("/Users/chenhongkun/Desktop/Virtual\ Memory/Project2/Project2/input2.txt");
     
     std::getline(input_file2,t_line);
     std::istringstream t_iss(t_line);
@@ -345,6 +342,56 @@ int main(int argc, const char * argv[]) {
     get_s(267911168);
     get_sp(267911680);
     
+    //Second initialization
+    memset(phym, 0, sizeof(phym));
+    BitMap bitmap2;
+    bitmap2.set_to_one(0);
+    TLB tlbs[4];
+    
+    std::istringstream iss3(line);
+    while(!iss3.eof()){
+        
+        std::string word[2];
+        iss3 >> word[0];
+        iss3 >> word[1];
+        
+        std::cout << word[0] << " " << word[1] << std::endl;
+        
+        int s,f;
+        if(word[0]!="" && word[1]!=""){
+            s = std::stoi(word[0]);
+            f = std::stoi(word[1]);
+            
+            set_page_table(s, f, phym, &bitmap2);
+            //set_page_table(s, f, phym2, &bitmap2);
+        }
+        
+        
+    }
+    
+    std::istringstream iss4(line2);
+    while(!iss4.eof()){
+        
+        std::string word[3];
+        iss4 >> word[0]; iss4 >> word[1]; iss4 >> word[2];
+        
+        std::cout << word[0] << " " << word[1] << " " << word[2] << std::endl;
+        
+        int p,s,f;
+        if(word[0]!="" && word[1]!="" && word[2]!=""){
+            p = std::stoi(word[0]);
+            s = std::stoi(word[1]);
+            f = std::stoi(word[2]);
+            
+            set_page_table_entry(s, p, f, phym, &bitmap2);
+            //set_page_table_entry(s, p, f, phym2, &bitmap2);
+        }
+        
+        
+    }
+
+    
+    
     //Translation with TLB
     std::istringstream t_iss2(t_line);
     while(!t_iss2.eof()){
@@ -366,7 +413,7 @@ int main(int argc, const char * argv[]) {
                 output_file2 << result;
                 output_file2 << " ";
             }else{
-                int result = tlb_miss(tlbs, va, o, phym2, &bitmap2);
+                int result = tlb_miss(tlbs, va, o, phym, &bitmap2);
                 
                 if(result == 0)
                     output_file2 << "m err ";
